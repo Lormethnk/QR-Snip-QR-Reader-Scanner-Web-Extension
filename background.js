@@ -2,9 +2,12 @@
 // Flow: freeze the visible tab as a screenshot, then let the user pick a region
 // on top of it (content/snip.js). Pages that refuse script injection (Chrome
 // Web Store, PDF viewer, ...) get the same UI in an extension tab instead.
+// Decoding happens here too (decoder.js), on crops sent by the overlay.
+
+importScripts('lib/zxing-reader.js', 'decoder.js');
 
 const DEFAULT_TITLE = 'Select and read a QR code (Alt+Shift+Q)';
-const SNIP_FILES = ['lib/jsQR.js', 'content/snip.js'];
+const SNIP_FILES = ['content/snip.js'];
 
 // Screenshot handed to the fallback tab; kept in memory because a hi-DPI PNG
 // can exceed chrome.storage.session quotas.
@@ -66,6 +69,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse(pendingCapture);
       pendingCapture = null;
       break;
+    case 'qr:decode':
+      decodeQrImage(msg.image)
+        .catch((err) => {
+          console.warn('[QR Snip] decode failed:', err);
+          return null;
+        })
+        .then(sendResponse);
+      return true; // keep the channel open for the async response
   }
 });
 

@@ -13,7 +13,7 @@ A Chrome extension that works like the Windows Snipping Tool for QR codes: click
 
 - **Snipping-style selection:** the page is frozen while you select, so moving content (videos, animations) doesn't get in the way.
 - **Works on PDFs too:** including QR codes in Chrome's built-in PDF viewer and local `file://` documents.
-- **Robust decoding:** handles tight crops without a quiet zone, inverted codes, high-DPI screens, and small or blurry codes.
+- **Robust decoding:** reads photos of printed codes taken at an angle, dense codes with long content, tight crops without a quiet zone, inverted codes, and small or blurry codes.
 - **One-click actions:** copy the content, open http/https links in a new tab, or select again.
 - **Private by design:** everything runs locally in your browser. The extension only touches a page when you click its icon and never sends data anywhere.
 - **Light and dark theme:** follows your system setting.
@@ -48,7 +48,7 @@ Press <kbd>Esc</kbd>, right-click, or click the icon again to close the overlay.
 
 1. On click, the background service worker captures the visible tab with `chrome.tabs.captureVisibleTab`.
 2. The selection overlay is injected into the page and displays that screenshot, so the page appears frozen.
-3. The selected area is cropped at full device resolution and decoded with Chrome's `BarcodeDetector` where available (macOS, ChromeOS, Android) or with [jsQR](https://github.com/cozmo/jsQR) otherwise. Several scaled and padded variants are tried, which matters for small codes.
+3. The selected area is cropped at full device resolution and decoded with Chrome's `BarcodeDetector` where available (macOS, ChromeOS, Android), otherwise in the service worker with [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) compiled to WebAssembly. The decoder retries on enlarged and sharpened versions of the crop, zooms in on codes it located but couldn't read, and scans large selections in tiles.
 4. Pages that don't allow script injection (Chrome Web Store, the PDF viewer, `file://` pages without file access) get the same UI in a separate extension tab.
 
 ### Project structure
@@ -56,13 +56,15 @@ Press <kbd>Esc</kbd>, right-click, or click the icon again to close the overlay.
 ```
 ├── manifest.json        Extension manifest (MV3)
 ├── background.js        Icon/shortcut handler: capture + injection
+├── decoder.js           QR decoding pipeline (runs in the service worker)
 ├── content/
-│   └── snip.js          Selection overlay, cropping, decoding, result panel
+│   └── snip.js          Selection overlay, cropping, result panel
 ├── snip.html            Fallback tab for pages that block injection
 ├── fallback.js          Starts the overlay inside the fallback tab
 ├── lib/
-│   ├── jsQR.js          QR decoder (jsQR 1.4.0, unmodified)
-│   └── jsQR-LICENSE.txt
+│   ├── zxing-reader.js      zxing-wasm 2.2.4 loader (unmodified)
+│   ├── zxing_reader.wasm    zxing-cpp reader (unmodified)
+│   └── *-LICENSE.txt        Their licenses
 ├── icons/               Toolbar and store icons
 ├── docs/                README assets
 └── LICENSE              MIT
@@ -87,10 +89,11 @@ No host permissions are requested, so the extension cannot read any page on its 
 
 This project is released under the [MIT License](LICENSE).
 
-It bundles one third-party library, which keeps its own license:
+It bundles two third-party components, which keep their own licenses:
 
 | Component | License |
 | --- | --- |
-| [jsQR](https://github.com/cozmo/jsQR) 1.4.0 (`lib/jsQR.js`) | [Apache-2.0](lib/jsQR-LICENSE.txt) |
+| [zxing-wasm](https://github.com/Sec-ant/zxing-wasm) 2.2.4 (`lib/zxing-reader.js`) | [MIT](lib/zxing-wasm-LICENSE.txt) |
+| [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) (`lib/zxing_reader.wasm`) | [Apache-2.0](lib/zxing-cpp-LICENSE.txt) |
 
 The extension has no other dependencies and loads nothing from the network.

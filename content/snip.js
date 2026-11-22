@@ -7,10 +7,6 @@
   if (window.__qrSnip) return;
 
   const MIN_SELECTION = 6; // px; smaller drags count as a click
-  const MAX_DECODE_SIDE = 1600; // larger crops are scaled down for jsQR
-  const UPSCALE_STEPS = [2, 3, 4, 6]; // retried for small or blurry codes
-  const MAX_UPSCALED_SIDE = 2000;
-  const QUIET_ZONE = 0.12; // white padding added for tightly cropped codes
 
   const STYLE = `
     :host { all: initial; }
@@ -494,32 +490,22 @@
     const native = await decodeNative(canvas);
     if (native !== null) return native;
 
-    // jsQR is picky about module size and the quiet zone, so try a few
-    // rescaled / padded variants before giving up. Codes only 2-3 px per
-    // module (e.g. a QR in Chrome's PDF viewer) usually decode only after
-    // upscaling, and which factor works varies with the crop.
-    const longest = Math.max(canvas.width, canvas.height);
-    const scales =
-      longest > MAX_DECODE_SIDE
-        ? [MAX_DECODE_SIDE / longest]
-        : [1, ...UPSCALE_STEPS.filter((s) => longest * s <= MAX_UPSCALED_SIDE)];
-
-    for (const scale of scales) {
-      for (const pad of [0, QUIET_ZONE]) {
-        const variant = renderVariant(canvas, scale, pad);
-        const ctx = variant.getContext('2d', { willReadFrequently: true });
-        const { data, width, height } = ctx.getImageData(0, 0, variant.width, variant.height);
-        const result = jsQR(data, width, height, { inversionAttempts: 'attemptBoth' });
-        if (result) return result.data;
-        // Yield so the "busy" outline can paint on slow attempts.
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      }
+    // The service worker decodes with zxing-cpp (decoder.js); WebAssembly
+    // can't run reliably here because of the page's CSP.
+    try {
+      const text = await chrome.runtime.sendMessage({
+        type: 'qr:decode',
+        image: canvas.toDataURL('image/png'),
+      });
+      return typeof text === 'string' ? text : null;
+    } catch (err) {
+      console.warn('[QR Snip] decode request failed:', err);
+      return null;
     }
-    return null;
   }
 
   // Chrome exposes BarcodeDetector on macOS, ChromeOS and Android; Windows
-  // and Linux builds fall through to jsQR.
+  // and Linux builds fall through to the service worker.
   async function decodeNative(canvas) {
     if (nativeDetector === undefined) {
       nativeDetector = null;
@@ -531,7 +517,7 @@
           }
         }
       } catch {
-        // Unsupported; jsQR handles it.
+        // Unsupported; the service worker handles it.
       }
     }
     if (!nativeDetector) return null;
@@ -541,24 +527,6 @@
     } catch {
       return null;
     }
-  }
-
-  function renderVariant(src, scale, pad) {
-    const w = Math.max(1, Math.round(src.width * scale));
-    const hgt = Math.max(1, Math.round(src.height * scale));
-    const p = Math.round(Math.max(w, hgt) * pad);
-    const canvas = document.createElement('canvas');
-    canvas.width = w + p * 2;
-    canvas.height = hgt + p * 2;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // Smooth upscaling matters: nearest-neighbour keeps the anti-aliased gray
-    // module edges as blocks, which jsQR's binarizer misreads.
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(src, p, p, w, hgt);
-    return canvas;
   }
 
   function drawThumb(thumb, crop) {
